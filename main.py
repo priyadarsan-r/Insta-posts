@@ -4,7 +4,10 @@ import asyncio
 import requests
 from bs4 import BeautifulSoup
 from google import genai
-import edge_tts
+from gtts import gTTS
+import whisper
+import warnings
+warnings.filterwarnings("ignore") # Hides PyTorch warnings in the logs
 from playwright.async_api import async_playwright
 from moviepy.editor import ImageClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
@@ -41,35 +44,40 @@ async def main():
     response = client.models.generate_content(model='gemini-3.5-flash-lite', contents=prompt)
     script_text = response.text.replace('*', '').replace('#', '').strip()
 
-    # 3. Audio & Subtitles (Edge-TTS)
+    # 3. Audio & Subtitles (gTTS + Whisper)
     print("[3] Synthesizing Voice & Subtitles...")
     
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            communicate = edge_tts.Communicate(script_text, VOICE)
-            submaker = edge_tts.SubMaker()
-            
-            with open(OUTPUT_AUDIO, "wb") as audio_file:
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio":
-                        audio_file.write(chunk["data"])
-                    elif chunk["type"] == "WordBoundary":
-                        submaker.feed(chunk)
-                        
-            with open(OUTPUT_SRT, "w", encoding="utf-8") as srt_file:
-                srt_file.write(submaker.get_srt())
+    # 3a. Generate Voice using Google TTS
+    # tld='com' gives a standard US accent. Use 'co.uk' for British or 'com.au' for Australian
+    tts = gTTS(text=script_text, lang='en', tld='com')
+    tts.save(OUTPUT_AUDIO)
+
+    # 3b. Generate exact word-level timestamps using local AI
+    print("    Transcribing audio to generate exact subtitle timings...")
+    model = whisper.load_model("base")
+    result = model.transcribe(OUTPUT_AUDIO, word_timestamps=True)
+
+    # 3c. Format the output into standard SRT format for MoviePy
+    with open(OUTPUT_SRT, "w", encoding="utf-8") as srt_file:
+        srt_index = 1
+        for segment in result['segments']:
+            for word in segment.get('words', []):
+                text = word['word'].strip()
+                if not text:
+                    continue
                 
-            print("Voice generation successful!")
-            break  # Success, exit the retry loop
-            
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
-            if attempt < max_retries - 1:
-                print("Microsoft blocked the IP. Retrying in 10 seconds...")
-                await asyncio.sleep(10)
-            else:
-                raise Exception("Edge-TTS failed after 3 attempts. You will need to wait for the next 6-hour cron cycle to get a fresh runner IP.")
+                # Convert seconds to SRT timestamp format (HH:MM:SS,ms)
+                def fmt_time(s):
+                    h = int(s // 3600)
+                    m = int((s % 3600) // 60)
+                    sec = int(s % 60)
+                    ms = int((s % 1) * 1000)
+                    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+                srt_file.write(f"{srt_index}\n")
+                srt_file.write(f"{fmt_time(word['start'])} --> {fmt_time(word['end'])}\n")
+                srt_file.write(f"{text}\n\n")
+                srt_index += 1
 
     # 4. Capture Visuals (Playwright)
     print("[4] Capturing Screenshots...")
