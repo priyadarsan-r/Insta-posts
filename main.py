@@ -43,18 +43,33 @@ async def main():
 
     # 3. Audio & Subtitles (Edge-TTS)
     print("[3] Synthesizing Voice & Subtitles...")
-    communicate = edge_tts.Communicate(script_text, VOICE)
-    submaker = edge_tts.SubMaker()
     
-    with open(OUTPUT_AUDIO, "wb") as audio_file:
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_file.write(chunk["data"])
-            elif chunk["type"] == "WordBoundary":
-                submaker.feed(chunk)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            communicate = edge_tts.Communicate(script_text, VOICE)
+            submaker = edge_tts.SubMaker()
+            
+            with open(OUTPUT_AUDIO, "wb") as audio_file:
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        audio_file.write(chunk["data"])
+                    elif chunk["type"] == "WordBoundary":
+                        submaker.feed(chunk)
+                        
+            with open(OUTPUT_SRT, "w", encoding="utf-8") as srt_file:
+                srt_file.write(submaker.get_srt())
                 
-    with open(OUTPUT_SRT, "w", encoding="utf-8") as srt_file:
-        srt_file.write(submaker.get_srt())
+            print("Voice generation successful!")
+            break  # Success, exit the retry loop
+            
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                print("Microsoft blocked the IP. Retrying in 10 seconds...")
+                await asyncio.sleep(10)
+            else:
+                raise Exception("Edge-TTS failed after 3 attempts. You will need to wait for the next 6-hour cron cycle to get a fresh runner IP.")
 
     # 4. Capture Visuals (Playwright)
     print("[4] Capturing Screenshots...")
