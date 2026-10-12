@@ -38,7 +38,7 @@ async def main():
     print("[2] Generating script...")
     client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = "Write a fast-paced 45-second voiceover script for an Instagram Reel highlighting these 3 GitHub repos. No visual directions, just the spoken words. Give a quick intro, mention each repo and what it does, and a quick outro:\n" + str(repos)
-    response = client.models.generate_content(model='gemini-3.8-flash', contents=prompt)
+    response = client.models.generate_content(model='gemini-3.5-flash-lite', contents=prompt)
     script_text = response.text.replace('*', '').replace('#', '').strip()
 
     # 3. Audio & Subtitles (Edge-TTS)
