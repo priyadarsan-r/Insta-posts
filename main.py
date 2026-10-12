@@ -128,28 +128,41 @@ async def main():
         print("Skipping publish: Missing Instagram secrets.")
         return
 
-    # Container Creation
+    # Container Creation with Error Handling
     res = requests.post(
         f"https://graph.facebook.com/{api_version}/{IG_USER_ID}/media",
         data={"media_type": "REELS", "upload_type": "resumable", "caption": "Trending Repos! 🚀 #github #coding", "access_token": IG_ACCESS_TOKEN}
     ).json()
+    
+    if "id" not in res:
+        print(f"\n❌ INSTAGRAM API ERROR: {res}\n")
+        raise Exception("Failed to create Instagram container. See the exact API error printed above.")
+        
     container_id = res["id"]
     
     # Binary Upload
     with open(OUTPUT_VIDEO, "rb") as f:
-        requests.post(
+        upload_res = requests.post(
             f"https://rupload.facebook.com/ig-api-upload/{api_version}/{container_id}",
             headers={"Authorization": f"OAuth {IG_ACCESS_TOKEN}", "offset": "0"},
             data=f.read()
         )
+        if upload_res.status_code != 200:
+             print(f"\n❌ INSTAGRAM UPLOAD ERROR: {upload_res.text}\n")
+             raise Exception("Failed to upload the video binary.")
         
     # Polling Processing Status
     for _ in range(20):
-        status = requests.get(
+        status_res = requests.get(
             f"https://graph.facebook.com/{api_version}/{container_id}", 
             params={"fields": "status_code", "access_token": IG_ACCESS_TOKEN}
-        ).json().get("status_code")
-        if status == "FINISHED": break
+        ).json()
+        status = status_res.get("status_code")
+        
+        if status == "FINISHED": 
+            break
+        elif status == "ERROR":
+            raise Exception("Instagram failed to process the uploaded video format.")
         time.sleep(15)
         
     # Final Publish Execution
@@ -157,7 +170,10 @@ async def main():
         f"https://graph.facebook.com/{api_version}/{IG_USER_ID}/media_publish",
         data={"creation_id": container_id, "access_token": IG_ACCESS_TOKEN}
     ).json()
-    print(f"Published! Reel ID: {pub_res.get('id')}")
-
+    
+    if "id" in pub_res:
+        print(f"✅ Published! Reel ID: {pub_res.get('id')}")
+    else:
+        print(f"\n❌ INSTAGRAM PUBLISH ERROR: {pub_res}\n")
 if __name__ == "__main__":
     asyncio.run(main())
