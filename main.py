@@ -41,8 +41,26 @@ async def main():
     print("[2] Generating script...")
     client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = "Write a fast-paced 45-second voiceover script for an Instagram Reel highlighting these 3 GitHub repos. No visual directions, just the spoken words. Give a quick intro, mention each repo and what it does, and a quick outro:\n" + str(repos)
-    response = client.models.generate_content(model='gemini-3.5-flash-lite', contents=prompt)
-    script_text = response.text.replace('*', '').replace('#', '').strip()
+    
+    # NEW: Retry logic to handle 503 High Demand errors
+    max_retries = 5
+    script_text = ""
+    for attempt in range(max_retries):
+        try:
+            # Note: If 'gemini-3.5-flash-lite' continues to face high demand, 
+            # consider falling back to 'gemini-2.5-flash' or 'gemini-1.5-flash'
+            response = client.models.generate_content(model='gemini-3.5-flash-lite', contents=prompt)
+            script_text = response.text.replace('*', '').replace('#', '').strip()
+            break  # Success! Exit the retry loop
+        except Exception as e:
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                wait_time = 15 * (attempt + 1) # Wait 15s, 30s, 45s, etc.
+                print(f"Gemini API busy (503). Retrying in {wait_time}s... (Attempt {attempt + 2}/{max_retries})")
+                time.sleep(wait_time)
+                if attempt == max_retries - 1:
+                    raise Exception(f"Gemini API failed after {max_retries} attempts. Last error: {e}")
+            else:
+                raise e # Throw immediately if it's a different kind of error (like auth failure)
 
     # 3. Audio & Subtitles (gTTS + Whisper)
     print("[3] Synthesizing Voice & Subtitles...")
