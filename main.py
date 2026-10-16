@@ -200,7 +200,8 @@ def publish_video():
         status = status_res.get("status_code")
         
         if status == "FINISHED": 
-            print("    Processing complete.")
+            print("    Processing complete. Waiting 60s for Meta's backend to sync...")
+            time.sleep(60) # <--- The magic fix
             break
         elif status == "ERROR": 
             raise Exception("IG processing failed on Meta's end.")
