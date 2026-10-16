@@ -164,21 +164,24 @@ async def main():
     container_id = res["id"]
     
     # Binary Upload
-    file_size = os.path.getsize(OUTPUT_VIDEO)
     with open(OUTPUT_VIDEO, "rb") as f:
-        upload_res = requests.post(
-            f"https://rupload.facebook.com/ig-api-upload/{api_version}/{container_id}",
-            headers={
-                "Authorization": f"OAuth {IG_ACCESS_TOKEN}", 
-                "offset": "0",
-                "file_offset": "0",
-                "X-Entity-Name": OUTPUT_VIDEO,
-                "X-Entity-Length": str(file_size)
-            },
-            data=f.read()
-        )
-        if upload_res.status_code != 200:
-             raise Exception(f"Failed to upload binary: {upload_res.text}")
+        video_data = f.read()
+        
+    upload_res = requests.post(
+        f"https://rupload.facebook.com/ig-api-upload/{api_version}/{container_id}",
+        headers={
+            "Authorization": f"OAuth {IG_ACCESS_TOKEN}", 
+            "offset": "0",
+            "file_offset": "0",
+            "X-Entity-Name": OUTPUT_VIDEO,
+            "X-Entity-Length": str(len(video_data)),
+            "Content-Length": str(len(video_data)),
+            "Content-Type": "application/octet-stream"
+        },
+        data=video_data
+    )
+    if upload_res.status_code != 200:
+        raise Exception(f"Failed to upload binary: {upload_res.text}")
         
     # Polling Processing Status
     for _ in range(20):
