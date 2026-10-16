@@ -104,7 +104,12 @@ async def main():
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page(viewport={'width': 1080, 'height': 1920})
         for i, repo in enumerate(repos):
-            await page.goto(repo["url"], wait_until="networkidle")
+            # Changed wait_until to "load" and added a 60s timeout
+            await page.goto(repo["url"], wait_until="load", timeout=60000)
+            
+            # Added a 2-second wait to allow dynamic elements/fonts to load
+            await page.wait_for_timeout(2000)
+            
             path = f"repo_{i}.png"
             await page.screenshot(path=path)
             image_paths.append(path)
