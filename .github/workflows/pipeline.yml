@@ -9,60 +9,49 @@ jobs:
   render-and-post:
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           
-      - name: ⚙️ Install System Utilities (FFmpeg & ImageMagick)
+      - name: Install System Utilities (FFmpeg & ImageMagick)
         run: |
           sudo apt-get update
           sudo apt-get install -y imagemagick ffmpeg fonts-liberation
-          # Patch ImageMagick security policy to allow text rendering
           sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"\/>/<policy domain="path" rights="read|write" pattern="@\*"\/>/g' /etc/ImageMagick-6/policy.xml
 
-      # --- CACHING BLOCK ---
-      - name: 💾 Cache Python Virtual Environment
-        id: cache-venv
+      # ----------------------------------------------------
+      # CACHE SETUP
+      # ----------------------------------------------------
+      - name: Cache Python Venv & Playwright Browsers
+        id: cache-deps
         uses: actions/cache@v4
         with:
-          path: venv
-          # This key changes anytime you edit main.py, forcing a fresh install
-          key: ${{ runner.os }}-venv-${{ hashFiles('main.py') }}
+          path: |
+            venv
+            ~/.cache/ms-playwright
+          key: env-cache-${{ runner.os }}-${{ hashFiles('main.py') }}
 
-      - name: 💾 Cache Playwright Chromium
-        id: cache-playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('main.py') }}
-      # ---------------------
-
-      - name: 📦 Install Python Dependencies (Only on cache miss)
-        if: steps.cache-venv.outputs.cache-hit != 'true'
+      - name: Install Python Dependencies & Browser
+        # Skips this step entirely if the cache is found and main.py hasn't changed
+        if: steps.cache-deps.outputs.cache-hit != 'true'
         run: |
           python -m venv venv
-          source venv/bin/activate
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 google-genai gTTS setuptools-rust openai-whisper playwright "moviepy<2.0.0"
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/pip install requests beautifulsoup4 google-genai gTTS setuptools-rust openai-whisper playwright "moviepy<2.0.0"
+          venv/bin/playwright install chromium
 
-      - name: 🌐 Install Playwright Browser Binary (Only on cache miss)
-        if: steps.cache-playwright.outputs.cache-hit != 'true'
-        run: |
-          source venv/bin/activate
-          playwright install chromium
+      - name: Install Playwright OS Dependencies
+        # GitHub resets the OS on every run, so OS-level dependencies must be installed quickly via apt
+        run: venv/bin/playwright install-deps chromium
 
-      - name: 🧩 Install OS Dependencies for Playwright (Runs every time)
-        # GitHub spins up a fresh Ubuntu machine every run, so OS-level apt packages 
-        # required by Chromium must be installed every time (but it takes < 5 seconds).
-        run: |
-          source venv/bin/activate
-          playwright install-deps chromium
-
-      - name: 🛡️ Route Traffic through Cloudflare WARP
+      # ----------------------------------------------------
+      # PIPELINE EXECUTION (SEPARATED STEPS)
+      # ----------------------------------------------------
+      - name: Route Traffic through Cloudflare WARP
         run: |
           curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
           echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
@@ -72,17 +61,30 @@ jobs:
           sleep 5
           curl ifconfig.me
 
-      - name: 🚀 Execute Python Pipeline
+      - name: Step 1 - Fetch Trending Repos
+        run: venv/bin/python main.py fetch
+
+      - name: Step 2 - Generate Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: venv/bin/python main.py script
+
+      - name: Step 3 - Synthesize Audio & Subtitles
+        run: venv/bin/python main.py audio
+
+      - name: Step 4 - Capture Visuals
+        run: venv/bin/python main.py visuals
+
+      - name: Step 5 - Render Final Video
+        run: venv/bin/python main.py video
+
+      - name: Step 6 - Publish to Instagram
+        env:
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
-        run: |
-          # We must activate the cached virtual environment before running the script
-          source venv/bin/activate
-          python main.py
+        run: venv/bin/python main.py publish
 
-      - name: 📤 Upload Video Artifact
+      - name: Upload Video Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
