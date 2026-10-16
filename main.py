@@ -149,7 +149,8 @@ def assemble_video():
             subtitle_clips.append(txt_clip)
 
     final_video = CompositeVideoClip([base_video] + subtitle_clips)
-    final_video.write_videofile(OUTPUT_VIDEO, fps=30, codec="libx264", audio_codec="aac")
+    # Added ffmpeg_params to force Instagram's required yuv420p pixel format
+    final_video.write_videofile(OUTPUT_VIDEO, fps=30, codec="libx264", audio_codec="aac", ffmpeg_params=["-pix_fmt", "yuv420p", "-profile:v", "main"])
     print("✅ Video rendered.")
 
 def publish_video():
@@ -209,17 +210,25 @@ def publish_video():
         print(f"    Status: {status} - Waiting 15s...")
         time.sleep(15)
         
-    # 4. Final Publish
+    # 4. Final Publish (With Retry Logic)
     print("    Executing final publish...")
-    pub_res = requests.post(
-        f"https://graph.facebook.com/{api_version}/{IG_USER_ID}/media_publish",
-        data={"creation_id": container_id, "access_token": IG_ACCESS_TOKEN}
-    ).json()
-    
-    if "id" in pub_res: 
-        print(f"✅ Published! Reel ID: {pub_res.get('id')}")
-    else: 
-        raise Exception(f"Publish failed: {pub_res}")
+    for attempt in range(3):
+        pub_res = requests.post(
+            f"https://graph.facebook.com/{api_version}/{IG_USER_ID}/media_publish",
+            data={"creation_id": container_id, "access_token": IG_ACCESS_TOKEN}
+        ).json()
+        
+        if "id" in pub_res: 
+            print(f"✅ Published! Reel ID: {pub_res.get('id')}")
+            return # Exit the function completely on success
+            
+        print(f"    Publish attempt {attempt + 1} failed: {pub_res}")
+        if attempt < 2:
+            print("    Retrying in 30 seconds...")
+            time.sleep(30)
+            
+    # If it fails 3 times, throw the error
+    raise Exception(f"Publish failed after 3 attempts: {pub_res}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
