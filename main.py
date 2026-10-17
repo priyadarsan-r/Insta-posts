@@ -150,7 +150,14 @@ def assemble_video():
 
     final_video = CompositeVideoClip([base_video] + subtitle_clips)
     # Added ffmpeg_params to force Instagram's required yuv420p pixel format
-    final_video.write_videofile(OUTPUT_VIDEO, fps=30, codec="libx264", audio_codec="aac", ffmpeg_params=["-pix_fmt", "yuv420p", "-profile:v", "main"])
+    final_video.write_videofile(
+        OUTPUT_VIDEO, 
+        fps=30, 
+        codec="libx264", 
+        audio_codec="aac", 
+        audio_fps=44100, # <-- This is the new crucial fix for the audio sync
+        ffmpeg_params=["-pix_fmt", "yuv420p", "-profile:v", "main"]
+    )
     print("✅ Video rendered.")
 
 def publish_video():
@@ -180,8 +187,9 @@ def publish_video():
         f"https://graph.facebook.com/{api_version}/{IG_USER_ID}/media",
         data={
             "media_type": "REELS",
-            "video_url": video_url, # Pass the URL instead of initializing a resumable upload
+            "video_url": video_url,
             "caption": "Trending Repos! 🚀 #github #coding",
+            "share_to_feed": "true", # <-- Forces Meta to route it to the feed properly
             "access_token": IG_ACCESS_TOKEN
         }
     ).json()
