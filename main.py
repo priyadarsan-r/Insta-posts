@@ -149,13 +149,19 @@ def assemble_video():
             subtitle_clips.append(txt_clip)
 
     final_video = CompositeVideoClip([base_video] + subtitle_clips)
-    # Added ffmpeg_params to force Instagram's required yuv420p pixel format
+    
+    # 1. THE FIX: Force the entire composition to match the audio track's exact length.
+    # This prevents Whisper subtitles from artificially stretching the video stream.
+    final_video = final_video.set_duration(audio.duration)
+
+    # 2. Added audio_bitrate="128k" to ensure the standard format
     final_video.write_videofile(
         OUTPUT_VIDEO, 
         fps=30, 
         codec="libx264", 
         audio_codec="aac", 
-        audio_fps=44100, # <-- This is the new crucial fix for the audio sync
+        audio_fps=44100, 
+        audio_bitrate="128k",
         ffmpeg_params=["-pix_fmt", "yuv420p", "-profile:v", "main"]
     )
     print("✅ Video rendered.")
